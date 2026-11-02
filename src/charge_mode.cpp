@@ -45,6 +45,7 @@ const eeprom_charge_mode_data_t default_charge_mode_data = {
     .coarse_stop_backoff_enable = true,
     .coarse_stop_backoff_turns = 0.25f,
     .coarse_stop_backoff_speed_rps = 1.0f,
+    .auto_tare_on_zero_timeout = false,
     .decimal_places = DP_2,
 
     // Precharges
@@ -212,6 +213,8 @@ void charge_mode_wait_for_zero() {
     // Update current status
     snprintf(title_string, sizeof(title_string), "Waiting for Zero");
 
+    TickType_t zero_wait_start_tick = xTaskGetTickCount();
+
     // Stop condition: 10 stable measurements in 200ms apart (2 seconds minimum)
     while (true) {
         TickType_t last_measurement_tick = xTaskGetTickCount();
@@ -230,6 +233,15 @@ void charge_mode_wait_for_zero() {
         float current_measurement;
         if (scale_block_wait_for_next_measurement(300, &current_measurement)){
             data_buffer.enqueue(current_measurement);
+        }
+
+        if (charge_mode_config.eeprom_charge_mode_data.auto_tare_on_zero_timeout &&
+            scale_config.scale_handle != NULL &&
+            (xTaskGetTickCount() - zero_wait_start_tick) >= pdMS_TO_TICKS(30000) &&
+            fabsf(current_measurement) < 0.04f &&
+            data_buffer.getCounter() >= 5) {
+            scale_config.scale_handle->force_zero();
+            break;
         }
 
         // Generate stop condition
@@ -638,7 +650,7 @@ bool charge_mode_config_init(void) {
     bool is_ok = false;
 
     // Read charge mode config from EEPROM
-    is_ok = load_config(EEPROM_CHARGE_MODE_BASE_ADDR, &charge_mode_config.eeprom_charge_mode_data, &default_charge_mode_data, sizeof(charge_mode_config.eeprom_charge_mode_data), EEPROM_CHARGE_MODE_DATA_REV);
+    is_ok = load_config(EEPROM_CHARGE_MODE_BASE_ADDR, &charge_mode_config.eeprom_charge_mode_data, &default_charge_mode_data, sizeof(charge_mode_config.eeprom_charge_mode_data), EEPROM_CHARGE_MODE_BASE_ADDR);
     if (!is_ok) {
         printf("Unable to read charge mode configuration\n");
         return is_ok;
@@ -678,6 +690,7 @@ bool http_rest_charge_mode_config(struct fs_file *file, int num_params, char *pa
     // c14 (bool): coarse_stop_backoff_enable
     // c15 (float): coarse_stop_backoff_turns
     // c16 (float): coarse_stop_backoff_speed_rps
+    // c17 (bool): auto_tare_on_zero_timeout
     // ee (bool): save to eeprom
 
     static char charge_mode_json_buffer[384];
@@ -726,7 +739,9 @@ bool http_rest_charge_mode_config(struct fs_file *file, int num_params, char *pa
         else if (strcmp(params[idx], "c16") == 0) {
             charge_mode_config.eeprom_charge_mode_data.coarse_stop_backoff_speed_rps = strtof(values[idx], NULL);
         }
-
+        else if (strcmp(params[idx], "c17") == 0) {
+            charge_mode_config.eeprom_charge_mode_data.auto_tare_on_zero_timeout = string_to_boolean(values[idx]);
+        }
 
         // LED related settings
         else if (strcmp(params[idx], "c1") == 0) {
@@ -756,7 +771,7 @@ bool http_rest_charge_mode_config(struct fs_file *file, int num_params, char *pa
              sizeof(charge_mode_json_buffer),
              "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
              "{\"c1\":\"#%06lx\",\"c2\":\"#%06lx\",\"c3\":\"#%06lx\",\"c4\":\"#%06lx\","
-             "\"c5a\":%.3f,\"c5\":%.3f,\"c6\":%.3f,\"c7\":%.3f,\"c8\":%.3f,\"c9\":%d,\"c10\":%s,\"c11\":%ld,\"c12\":%0.3f,\"c13\":%0.3f,\"c14\":%s,\"c15\":%0.3f,\"c16\":%0.3f}",
+             "\"c5a\":%.3f,\"c5\":%.3f,\"c6\":%.3f,\"c7\":%.3f,\"c8\":%.3f,\"c9\":%d,\"c10\":%s,\"c11\":%ld,\"c12\":%0.3f,\"c13\":%0.3f,\"c14\":%s,\"c15\":%0.3f,\"c16\":%0.3f,\"c17\":%s}",
              charge_mode_config.eeprom_charge_mode_data.neopixel_normal_charge_colour._raw_colour,
              charge_mode_config.eeprom_charge_mode_data.neopixel_under_charge_colour._raw_colour,
              charge_mode_config.eeprom_charge_mode_data.neopixel_over_charge_colour._raw_colour,
@@ -773,7 +788,8 @@ bool http_rest_charge_mode_config(struct fs_file *file, int num_params, char *pa
              charge_mode_config.eeprom_charge_mode_data.coarse_stop_gate_ratio,
              boolean_to_string(charge_mode_config.eeprom_charge_mode_data.coarse_stop_backoff_enable),
              charge_mode_config.eeprom_charge_mode_data.coarse_stop_backoff_turns,
-             charge_mode_config.eeprom_charge_mode_data.coarse_stop_backoff_speed_rps);
+             charge_mode_config.eeprom_charge_mode_data.coarse_stop_backoff_speed_rps,
+             boolean_to_string(charge_mode_config.eeprom_charge_mode_data.auto_tare_on_zero_timeout));
 
     size_t data_length = strlen(charge_mode_json_buffer);
     file->data = charge_mode_json_buffer;
