@@ -103,6 +103,18 @@ void neopixel_led_set_colour(rgbw_u32_t mini12864_backlight_colour, rgbw_u32_t l
         return;  // unable to take mutex, return immediately
     }
 
+    /* Keep the original display backlight except when the status LEDs use one
+       of the original green, yellow, or red charge-status colors. */
+    if (led1_colour._raw_colour == RGB_COLOUR_GREEN ||
+        led1_colour._raw_colour == RGB_COLOUR_YELLOW ||
+        led1_colour._raw_colour == RGB_COLOUR_RED) {
+        mini12864_backlight_colour = led1_colour;
+    } else if (led2_colour._raw_colour == RGB_COLOUR_GREEN ||
+               led2_colour._raw_colour == RGB_COLOUR_YELLOW ||
+               led2_colour._raw_colour == RGB_COLOUR_RED) {
+        mini12864_backlight_colour = led2_colour;
+    }
+
     /* Important: do not change the order of LED update operations. 
        Neopixel LEDs on the same string are updated in the order they are sent. The update order has to be: 
         1. Encoder RGB1
