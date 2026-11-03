@@ -8,7 +8,7 @@
 //            ------
 //             EXP1
 //            -----
-//        5V |10  9 | GND
+//        -- |10  9 | --
 //   (RESET) | 8  7 | --
 //   (MOSI)  | 6  5#| (EN2)
 //        -- | 4  3 | (EN1)
@@ -47,17 +47,12 @@ const eeprom_neopixel_led_metadata_t default_neopixel_led_metadata = {
     .default_led_colours = {
         .led1_colour._raw_colour = RGB_COLOUR_DULL_WHITE,
         .led2_colour._raw_colour = RGB_COLOUR_DULL_WHITE,
-        .mini12864_backlight_colour._raw_colour = RGB_COLOUR_DULL_WHITE,
+        .mini12864_backlight_colour._raw_colour = RGB_COLOUR_WHITE,
     },
     .pwm_out_led_chain_count = NEOPIXEL_LED_CHAIN_COUNT_2,  // 2x LED chains by default
     .pwm_out_led_is_rgbw = true,                            // Default to RGBW
     .pwm_out_led_colour_order = NEOPIXEL_COLOUR_ORDER_RGB,  // Default to RGB colour order
 };
-
-static inline void sync_backlight_to_button_leds(void) {
-    neopixel_led_config.eeprom_neopixel_led_metadata.default_led_colours.mini12864_backlight_colour =
-        neopixel_led_config.eeprom_neopixel_led_metadata.default_led_colours.led1_colour;
-}
 
 uint32_t urgbw_u32(rgbw_u32_t colour, neopixel_colour_order_t colour_order) {
 
@@ -77,7 +72,7 @@ uint32_t urgbw_u32(rgbw_u32_t colour, neopixel_colour_order_t colour_order) {
     
     return output;
 }
-  
+ 
 static inline void put_pixel(pio_config_t * pio_config, uint32_t pixel_grb) {
     pio_sm_put_blocking(pio_config->pio, pio_config->sm, pixel_grb << 8u);
 }
@@ -108,13 +103,6 @@ void neopixel_led_set_colour(rgbw_u32_t mini12864_backlight_colour, rgbw_u32_t l
         return;  // unable to take mutex, return immediately
     }
 
-    // Keep the display backlight visually matched to the active button LED colour.
-    // The user wants the Mini 12864 backlight to follow the same color as the LEDs next to the control button.
-    rgbw_u32_t synced_backlight = led1_colour;
-    if (led2_colour._raw_colour != 0) {
-        synced_backlight = led2_colour;
-    }
-
     /* Important: do not change the order of LED update operations. 
        Neopixel LEDs on the same string are updated in the order they are sent. The update order has to be: 
         1. Encoder RGB1
@@ -124,7 +112,7 @@ void neopixel_led_set_colour(rgbw_u32_t mini12864_backlight_colour, rgbw_u32_t l
     _neopixel_led_set_colour(
         urgbw_u32(led1_colour, NEOPIXEL_COLOUR_ORDER_GRB),
         urgbw_u32(led2_colour, NEOPIXEL_COLOUR_ORDER_GRB),
-        urgbw_u32(synced_backlight, NEOPIXEL_COLOUR_ORDER_GRB)
+        urgbw_u32(mini12864_backlight_colour, NEOPIXEL_COLOUR_ORDER_GRB)
     );
 
     /* Update PWM3 output to mirror new_led1_colour */
@@ -144,6 +132,7 @@ bool neopixel_led_init(void) {
     // Initialize configuration
     memset(&neopixel_led_config, 0x0, sizeof(neopixel_led_config));
     is_ok = load_config(EEPROM_NEOPIXEL_LED_CONFIG_BASE_ADDR, &neopixel_led_config.eeprom_neopixel_led_metadata, &default_neopixel_led_metadata, sizeof(neopixel_led_config.eeprom_neopixel_led_metadata), EEPROM_NEOPIXEL_LED_METADATA_REV);
+
     if (!is_ok) {
         printf("Unable to read neopixel configuration\n");
         return is_ok;
@@ -176,7 +165,6 @@ bool neopixel_led_init(void) {
     neopixel_led_config.mini12864_pio_config.sm = sm;
 
     // Set default colour
-    sync_backlight_to_button_leds();
     _neopixel_led_set_colour(
         urgbw_u32(neopixel_led_config.eeprom_neopixel_led_metadata.default_led_colours.led1_colour, NEOPIXEL_COLOUR_ORDER_GRB),
         urgbw_u32(neopixel_led_config.eeprom_neopixel_led_metadata.default_led_colours.led2_colour, NEOPIXEL_COLOUR_ORDER_GRB),
@@ -253,11 +241,9 @@ bool http_rest_neopixel_led_config(struct fs_file *file, int num_params, char *p
         }
         else if (strcmp(params[idx], "l1") == 0) {
             neopixel_led_config.eeprom_neopixel_led_metadata.default_led_colours.led1_colour._raw_colour = hex_string_to_decimal(values[idx]);
-            sync_backlight_to_button_leds();
         }
         else if (strcmp(params[idx], "l2") == 0) {
             neopixel_led_config.eeprom_neopixel_led_metadata.default_led_colours.led2_colour._raw_colour = hex_string_to_decimal(values[idx]);
-            sync_backlight_to_button_leds();
         }
         else if (strcmp(params[idx], "l3") == 0) {
             neopixel_led_config.eeprom_neopixel_led_metadata.pwm_out_led_chain_count = (neopixel_led_chain_count_t) atoi(values[idx]);
@@ -307,4 +293,3 @@ bool http_rest_neopixel_led_config(struct fs_file *file, int num_params, char *p
 
     return true;
 }
-

@@ -7,7 +7,7 @@
 #include "neopixel_led.h"
 
 
-#define EEPROM_CHARGE_MODE_DATA_REV                     10             // 16 byte 
+#define EEPROM_CHARGE_MODE_DATA_REV                     8              // 16 byte 
 
 #define WEIGHT_STRING_LEN 8
 
@@ -22,7 +22,6 @@ typedef enum {
 typedef struct {
     uint16_t charge_mode_data_rev;
 
-    float charge_acceptance_threshold;
     float coarse_stop_threshold;
     float fine_stop_threshold;
 
@@ -33,7 +32,6 @@ typedef struct {
     bool coarse_stop_backoff_enable;
     float coarse_stop_backoff_turns; // 0.125, 0.25, 0.5, 1.0
     float coarse_stop_backoff_speed_rps; // if <=0 uses min speed
-    bool auto_tare_on_zero_timeout;
 
     decimal_places_t decimal_places;
 
